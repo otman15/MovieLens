@@ -1,0 +1,1029 @@
+---
+title: "MovieLens Recommendation System Project"
+subtitle : "Harvardx's Data Science Professional Certificate" 
+author: "Otman Cherrati"
+date: "7/16/2021"
+output: 
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', cache=FALSE,
+                      cache.lazy = FALSE)
+```
+
+\newpage
+
+
+# Intorduction :
+
+  This report is part of the final capstone course of HarvardX Data Science Professional certificate taught by the famous professor Rafael Irizzary. 
+The report is on movilens dataset. MovieLens is run by GroupLens Research, a research lab in the Department of Computer Science and Engineering at the University of Minnesota. 
+Movilens recommends movies for its users to watch, based on their film preferences using collaborative filtering of members' movie ratings and movie reviews.
+
+## Object :
+   Our goal in this analysis is to create a movie recommendation system, using
+   movilens 10M dataset, capable of generate predictions of users rating based on a training dataset.
+  We will start by taking a look on the dataset and then explore the diffrent variables to see if there any trends that can help us make some assumptions.
+  After cleaning the data we will start building and testing our models. 
+  The evaluation is based on the RMSE - Root Mean Squared Error that should be at least lower than 0.87750.
+  $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}e_t^2}$$
+  Finally we will apply our final best model to the validation data set and discuss the results.
+  \vspace{0.5cm}
+  
+## package used :
+
+  **tidyverse()** \
+  **dplyr()** \
+  **ggplot2()** \
+  **stringr()** \
+  **data.table()** \
+  **caret()** \
+  **lubridate()** \
+  **Xgboost()** \
+  
+```{r, include=FALSE, echo=FALSE}
+# Install all needed libraries if it is not present
+if(!require(tidyverse)) install.packages("tidyverse") 
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(stringr)) install.packages("stringr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(data.table)) install.packages("data.table")
+if(!require(lubridate)) install.packages("lubridate")
+if(!require(xgboost)) install.packages("Xgboost")
+```
+
+```{r, include=FALSE, echo=FALSE}
+# load libraries
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(xgboost)
+```
+
+\vspace{1cm}
+## SessionInfo() :
+The output of sessionInfo() is placed here for reproducibility purposes.
+```{r, echo=FALSE}
+sessionInfo()
+```
+
+
+\vspace{1cm}
+## Load the movilens data set :
+ To load the data set we run the code provided by Edx.
+```{r, include=FALSE, echo=FALSE}
+##########################################################
+# Create edx set, validation set (final hold-out test set)
+##########################################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse",
+                                         repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret",
+                                     repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table",
+                                          repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(lubridate)
+
+
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t",
+                             readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(
+  unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+
+# if using R 4.0 or later:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use set.seed(1)
+test_index <- createDataPartition(y = movielens$rating, times = 1,
+                                  p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+# Save raw data and remove validation for now :
+
+fwrite(validation, "validation.csv")
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed,
+   validation)
+gc()
+
+```
+
+
+## Dataset Description
+
+   We will use the 10M version of the MovieLens dataset. The 10 Millions dataset has been divided into two dataset: edx for training purpose and validation for the final validation phase.
+The edx dataset contains approximately 9 Millions of rows with 69878 different users and 10677 movies.
+we will focus in our exploration and analysis on Edx data set, the validation set has the same features and will only be used in the final step.
+
+\newpage
+# Data Exploration :
+
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(lubridate)
+library(data.table)
+```
+
+## Initial exploration :
+
+**The structure** of the data :
+```{r , echo=FALSE}
+str(edx)
+```
+\vspace{1cm}
+
+The six features of the data set are (same as validation) : \
+**movieId:** Unique ID for the movie. \
+**userId:** Unique ID for the user. \
+**rating:** A rating between 0 and 5 for the movie. \
+**timestamp:** Date and time the rating was given. \
+**title:** Movie title and Year the movie was released. (not unique). \
+**genres:** Genres associated with the movie. \
+
+
+**Let's take a look** on the first six rows of Edx data :
+
+```{r , echo=FALSE}
+head(edx) %>% knitr::kable()
+```
+
+The Edx data contains 9000055 rows and 6 variables
+```{r , echo=FALSE}
+dim(edx) %>% knitr::kable()
+```
+
+**Look for missing values** : \
+we notice that there is no missing values  in the edx dataset.
+```{r, echo=FALSE}
+sapply(edx, function(i){
+  sum(is.na(i))
+}) %>% knitr::kable()
+```
+
+\newpage
+**Number of movies and users** :
+There is 69878 user and 10677 movie in the edx dataset.
+```{r, echo=FALSE}
+edx %>%
+  summarize(users = n_distinct(userId),
+                 movies = n_distinct(movieId)) %>%
+  knitr::kable()
+```
+
+\newpage
+## Variables Exploration
+
+### Movies :
+There are 10677 different movies in the edx set, some of them are rated more than others
+
+```{r, echo=FALSE}
+edx %>% 
+  count(movieId) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(bins = 30, color = "black") + 
+  scale_x_log10() + 
+  ggtitle("Movies distribution") + theme_bw() +
+  xlab("number of ratings")
+```
+
+**First six most rated movies**
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+edx %>% group_by(movieId, title) %>% summarise(n = n()) %>%
+        arrange(desc(n)) %>% head() %>% knitr::kable()
+```
+
+
+
+We notice that 90% of movies are rated at least 10 times:
+```{r, echo=FALSE}
+edx %>% dplyr::count(movieId) %>%
+        summarise("movies which are rated at least 10 times" = mean(n>=10)) %>% knitr::kable()
+```
+
+**Summary of rating per movies:**  \
+The average number of rating per movie is 842.9.
+```{r, echo=FALSE}
+edx %>% group_by(movieId) %>% 
+        summarise(number_of_ratings = n()) %>% 
+        ungroup() %>% pull(number_of_ratings) %>% summary()
+```
+
+
+### users
+
+There are 69878 different users in the edx set :
+
+```{r, echo=FALSE}
+edx %>%
+  dplyr::count(userId) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(bins = 30, color = "black") + 
+  scale_x_log10() +
+  ggtitle("User distribution") +
+  xlab("number of ratings") + theme_bw()
+```
+
+We notice that the user distribution is right skewed.
+Not every user is equally active. Some users have rated very few movie and others have rated a lot of movies.
+
+
+**Six users that rated the most :**
+```{r, echo=FALSE}
+edx %>% dplyr::count(userId) %>% 
+        arrange(desc(n)) %>% head() %>% knitr::kable()
+```
+
+
+**Summary rating per users:** 
+The average number rating per user is : 129 ratings
+
+```{r, echo=FALSE}
+edx %>% group_by(userId) %>% 
+        summarise(number_of_ratings = n()) %>%  ungroup() %>%
+        pull(number_of_ratings) %>% summary()
+```
+
+95 % of the users rated more than 20 movies
+
+```{r, echo=FALSE}
+edx %>% dplyr::count(userId) %>% 
+        summarise("users who rated more than 20 movies" = mean(n>=20)) %>% 
+  knitr::kable()
+```
+
+
+### Rating 
+
+The number of ratings in the dataset is : 9000055 \
+The rating range is between 0.5 and 5 : 10 possible choices.
+
+**Total number for each rating:**
+```{r, echo=FALSE}
+edx %>% dplyr::count(rating) %>% 
+        arrange(desc(n)) %>% knitr::kable()
+```
+
+
+
+```{r, echo=FALSE}
+edx %>% ggplot(aes(rating)) + 
+        geom_bar() + theme_bw() +
+        ggtitle("Distribution of rating")
+```
+We se that most rating get rounded value and that users have a general tendency to rate movies between 3 and 4. \
+
+\newpage
+**Average rating per user :**
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+edx %>% group_by(userId) %>% 
+        summarise(avg_rating = mean(rating)) %>%
+        ggplot(aes(avg_rating)) + 
+        geom_histogram(color = "black")
+```
+The distribution  is almost symmetric.
+
+ Summary of average rating per user :
+```{r, echo=FALSE}
+edx %>% group_by(userId) %>% 
+        summarise(avg_rating = mean(rating)) %>%
+        pull(avg_rating) %>% summary()
+```
+
+93% of users have an average rating of at least 3
+```{r, echo=FALSE}
+edx %>% group_by(userId) %>% 
+              summarise(avg_rating = mean(rating)) %>% 
+     summarise(mean(avg_rating >= 3))
+```
+
+
+\newpage
+ **Average rating per movie:**
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+edx %>% group_by(movieId) %>% 
+        summarise(avg_rating = mean(rating)) %>%
+        ggplot(aes(avg_rating)) + 
+        geom_histogram(color = "black")
+```
+The distribution is left skewed.
+
+ Summary of average rating per movie
+```{r, echo=FALSE}
+edx %>% group_by(movieId) %>% 
+        summarise(avg_rating = mean(rating)) %>%
+        pull(avg_rating) %>% summary()
+```
+
+
+92% of movies have an average rating between 2 and 4 :
+```{r, echo=FALSE}
+edx %>% group_by(movieId) %>% 
+              summarise(avg_rating = mean(rating)) %>% 
+     summarise(mean(avg_rating >= 3))
+```
+
+
+### Date :
+
+We will have to do some data processing to explore the date of release and date of rating.
+
+#### Date of rating : \
+We convert timestamp to year of rating : 
+
+```{r, include=FALSE, echo=FALSE}
+edx <- edx %>% mutate(
+  rating_year = as.integer(
+        year(date(as_datetime(timestamp, origin = "1970-01-01"))))) %>% 
+  select(-timestamp)
+```
+
+ That's how our data looks like now :
+
+```{r, echo=FALSE}
+head(edx) %>% knitr::kable()
+```
+
+ **Summary of year of rating : **
+
+The rating start in 1995, ends in 2009 and last more than 14 years.
+
+```{r, echo=FALSE}
+range <- range(edx$rating_year)
+diff <- diff(range(edx$rating_year))
+data.frame("Start" = range[1], "End" = range[2], "Period" = diff)
+rm(diff, range) %>% knitr::kable()
+```
+
+
+
+**The ten years with most number of ratings:**
+```{r, echo=FALSE}
+edx %>% group_by(rating_year) %>% 
+        summarise(n=n()) %>% 
+        head(10) %>% knitr::kable()
+```
+ 
+
+Plot the distribution of number of rating per year :
+
+```{r, echo=FALSE}
+edx %>% ggplot(aes(rating_year)) + 
+        geom_histogram(binwidth = 1, color = "black") + theme_bw() +
+        ggtitle("Distribution  per year of rating") +
+        ylab("number of ratings")
+```
+
+#### Year of release: \
+
+ 
+```{r, include=FALSE, echo=FALSE}
+edx <- edx %>% mutate(title = str_trim(title)) %>% 
+  extract(title, c("title_1", "release"),
+          regex = "^(.*) \\(([0-9 \\-]*)\\)$",
+          remove = F) %>% 
+  mutate(release = if_else(str_length(release) > 4,
+                           as.integer(str_split(release, "-",
+                                                simplify = T)[1]),
+                           as.integer(release))) %>% 
+  mutate(title = if_else(is.na(title_1), title,
+                         title_1)) %>% select(-title_1)
+```
+
+We'll extract the year of release from the title and take a look on the data : 
+
+```{r, echo=FALSE}
+head(edx) %>% knitr::kable()
+```
+
+ **Summary year of relaese:**
+
+```{r,include=FALSE, echo=FALSE}
+range <- range(edx$release)
+diff <- diff(range)
+```
+
+The first movie was released in 1915 and the last one 2008.
+```{r, echo=FALSE}
+data.frame("Start" = range[1], "End" = range[2], "period" = diff)
+rm(diff, range)
+```
+
+
+**Distribution of ratings per year of release**
+```{r, echo=FALSE}
+edx %>% group_by(release) %>% 
+        summarise(n = n()) %>%
+        ggplot(aes(release, n)) + 
+        geom_line(color = "red") + theme_bw() + 
+        ggtitle("Distribution per year of release") + 
+        ylab("number of ratings")
+```
+
+
+
+**The 10 years of release with the most rated movies:**
+```{r, echo=FALSE}
+edx %>% group_by(release) %>%  
+        summarise(n=n()) %>% arrange(desc(n)) %>%
+        head(10) %>% knitr::kable()
+```
+
+
+ **Number of released movies per year**
+ 
+ The 10 years with most released movies :
+```{r, echo=FALSE}
+edx %>% filter(!duplicated(movieId)) %>% dplyr::count(release) %>%
+  arrange(desc(n)) %>% head(10) %>% knitr::kable()
+```
+ 
+\vspace{1cm}
+```{r, echo=FALSE}
+edx %>% filter(!duplicated(movieId)) %>% 
+        dplyr::count(release) %>%
+        ggplot(aes(release, n)) +
+        geom_line(color = "blue") + theme_bw() +
+        ggtitle("distribution of released movies per year") +
+        ylab("number of movies released")
+```
+
+**rating vs year of release**
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+edx %>% group_by(release) %>%
+  summarize(rating = mean(rating)) %>%
+  ggplot(aes(release, rating)) +
+  geom_point() +
+  geom_smooth()
+```
+The general trend shows modern users relatively rate movies lower.
+
+
+\vspace{1cm}
+
+### Genre
+Number of rating per genre (genre in attached format) :
+```{r, echo=FALSE}
+edx <- edx %>% 
+       select(-title)
+edx %>% dplyr::count(genres) %>%
+        arrange(desc(n)) %>% head() %>% knitr::kable()
+```
+
+Number of genre combinations :
+```{r, echo=FALSE}
+unique(edx$genres) %>% length() %>% knitr::kable()
+```
+
+We will split the genres so as to have one genre in each row.
+```{r, echo=FALSE, include=FALSE}
+edx <- edx %>% separate_rows(genres, sep = "\\|")
+gc()
+```
+
+This is how our data looks now:
+```{r, echo=FALSE}
+head(edx) %>% knitr::kable()
+```
+
+**Number of genres in our data :** 
+```{r, echo=FALSE}
+n <- unique(edx$genres) %>% length()
+paste(n)
+```
+
+**Number of rating per each genre :**
+```{r, echo=FALSE}
+edx %>% dplyr::count(genres) %>% 
+        arrange(desc(n)) %>% knitr::kable()
+```
+
+\vspace{1cm}
+Distribution of rating per genres :
+```{r, echo=FALSE}
+edx %>% mutate(genres = factor(genres,
+          levels = names(sort(table(edx$genres), decreasing = TRUE)))) %>%
+        ggplot(aes(genres)) +  geom_bar(fill = "blue") + theme_bw() +
+        theme(axis.text.x = element_text(angle = 90)) +
+        ggtitle("number of movie rated per genres")
+```
+
+
+
+\newpage
+# Data preprocessing :
+
+```{r, echo=FALSE, include=FALSE}
+library(caret)
+```
+
+  
+## Data cleaning :
+
+  We have already cleaned our data, so now we will only convert genres to integer to make our code run fast and because most models works well with numeric class, this will not affect our results.
+```{r, echo=FALSE}
+edx <- edx %>% mutate(genres = as.integer(as.factor(genres)))
+```
+
+## Create train and test set :
+ The train set will be 80% of the edx data while the test set will be 20%.
+```{r, echo=FALSE, include=FALSE}
+set.seed(1, sample.kind = "Rounding")
+
+test_index <- createDataPartition(edx$rating, times = 1, p = 0.2, list = FALSE)
+
+train <- edx %>% dplyr::slice(-test_index)
+temp <- edx %>% dplyr::slice(test_index)
+test <- temp %>% semi_join(train, by = "movieId") %>% 
+  semi_join(train, by = "userId")
+removed <- anti_join(temp, test)
+train <- rbind(train, removed)
+rm(temp, test_index, removed, edx)
+gc()
+```
+
+**train set head** :
+```{r, echo=FALSE}
+head(train) %>% knitr::kable()
+```
+
+**test set head** :
+```{r, echo=FALSE}
+head(test) %>% knitr::kable()
+```
+
+
+\newpage
+#   Models building :
+
+  Machine learning algorithms in recommender systems typically fit into two categories: content-based systems and collaborative filtering systems. Modern recommender systems combine both approaches.
+
+A) 
+  Content-based methods are based on the similarity of movie attributes. Using this type of recommender system, if a user watches one movie, similar movies are recommended.  
+
+B) 
+  With collaborative filtering, the system is based on past interactions between users and movies. With this in mind, the input for a collaborative filtering system is made up of past data of user interactions with the movies they watch.
+
+ In our method we will try seven models starting with a naive approach, a content based one and then using some collaborative filtering with the others. We will get their RMSE on the test set,  the one with the least RMSE in the test set will then be applied on the validation set to get the final RMSE result.
+
+## Naive model : just the mean
+In this simple model we will make our predictions, by simply using the mean of all ratings as the estimate for every unknown rating.
+ 
+```{r, echo=FALSE}
+mean_rating = mean(train$rating)
+paste(c("The mean is", mean_rating))
+```
+
+The formula used for this model is : 
+$$Y_{u,i} = \hat{\mu} + \epsilon_{u,i}$$
+with û the mean rating and upsilon a random error.
+
+```{r, echo=FALSE}
+options(digits = 4)
+just_avg <- RMSE(test$rating, mean_rating)
+results <- data.frame("method" = "just the avg", "rmse" = just_avg)
+results %>% knitr::kable()
+```
+
+The rmse is 1.05 which is very big and that means that in average we are missing the true prediction by a whole star rating.
+
+## Movie effect model :
+Some movies are rated more often than others. So in this model we will take into account the variability from movie to movie. A bias term b_i will be calculated for each movie to determine how much better or worse a given film is from the overall average.
+$$Y_{u,i} = \hat{\mu} + b_i + \epsilon_{u,i}$$
+
+```{r, echo=FALSE, include=FALSE}
+options(digits = 2)
+movies_avgs <- train %>%
+               group_by(movieId) %>%
+               summarize(movie_eff = mean(rating - mean_rating))
+
+movie_eff <- test %>% 
+             left_join(movies_avgs, by = "movieId") %>% 
+             mutate(pred = mean_rating + movie_eff)
+
+gc()
+```
+
+```{r, echo=FALSE}
+options(digits = 4)
+movie_eff_rmse <- RMSE(test$rating, movie_eff$pred)
+
+results <- results %>%  add_row(method = "movie_eff", rmse = movie_eff_rmse)
+results %>% knitr::kable()
+rm(movie_eff)
+```
+
+The RMSE on the test set is 0.94 , it's better but still not good enough.
+
+## Movie plus User effect model : 
+Some users are positive and some have negative reviews because of their own personal liking/disliking regardless of movie.
+Users may have a tendency to rate movies higher or lower than the overall mean. So let's add this into the model. First we'll calculate the bias for each user:
+
+```{r, echo=FALSE, include=FALSE}
+gc()
+options(digits = 2)
+users_avgs <- train %>%
+                    left_join(movies_avgs, by='movieId') %>%
+                    group_by(userId) %>%
+                    summarize(user_eff = mean(rating - mean_rating - movie_eff))
+
+movie_user_eff <- test %>% 
+                        left_join(movies_avgs, by = 'movieId') %>%
+                        left_join(users_avgs , by = 'userId') %>% 
+                        mutate(pred = mean_rating + movie_eff + user_eff) 
+
+```
+
+Then we'll combine the user bias  with the movie bias to get the prediction.
+$$Y_{u,i} = \hat{\mu} + b_i + b_u + \epsilon_{u,i}$$
+```{r, echo=FALSE}
+options(digits = 4)
+movie_user_rmse <- RMSE(test$rating ,  movie_user_eff$pred)
+results <- results %>% 
+                    add_row(method = "movie_user_eff", rmse = movie_user_rmse)
+results %>% knitr::kable()
+rm(movie_user_eff)
+```
+The RMSE is now 0.857 on the test set .
+
+## Movie, User and genre effect model :
+The rating of a movie depends also on its genre, some genre have their avrerage rating a little better than others, we will add the genre bias to our model and see how this can improve our precision.
+$$Y_{u,i} = \hat{\mu} + b_i + b_u + b_g + \epsilon_{u,i}$$
+```{r, echo=FALSE, include=FALSE}
+options(digits = 2)
+genres_avgs <- train %>% 
+    select(-c(rating_year, release)) %>%
+    left_join(movies_avgs, by='movieId') %>%
+    left_join(users_avgs, by = "userId") %>%
+    group_by(genres) %>%
+    summarize(genre_eff = mean(rating - mean_rating - movie_eff - user_eff))
+
+movie_user_g_eff <- test %>% 
+    left_join(movies_avgs, by = 'movieId') %>%
+    left_join(users_avgs , by = 'userId') %>%
+    left_join(genres_avgs, by ="genres") %>%
+    mutate(pred = mean_rating + movie_eff + user_eff + genre_eff) 
+
+gc()
+```
+
+```{r, echo=FALSE}
+options(digits = 4)
+movie_user_g_rmse <- RMSE(test$rating ,  movie_user_g_eff$pred)
+
+results <- results %>% 
+           add_row(method = "movie_user_g_eff", rmse = movie_user_g_rmse)
+results %>% knitr::kable()
+rm(movie_user_g_eff)
+```
+
+
+## Movie, User, genre, and release year effect model :
+The popularity of the movie genre depends strongly on the contemporary issues. So we should also add the date bias b_d to our analysis.
+$$Y_{u,i} = \hat{\mu} + b_i + b_u + b_g + b_d + \epsilon_{u,i}$$
+
+```{r, echo=FALSE, include=FALSE}
+gc()
+options(digits = 2)
+release_avgs <- train %>%
+    left_join(movies_avgs, by='movieId') %>% 
+    left_join(users_avgs, by="userId") %>%
+    left_join(genres_avgs, by = "genres") %>% 
+    group_by(release) %>%
+    summarize(release_eff = 
+              mean(rating - mean_rating - movie_eff - user_eff - genre_eff))
+release_eff <- test %>% 
+    left_join(movies_avgs, by = 'movieId') %>%
+    left_join(users_avgs , by = 'userId') %>%
+    left_join(genres_avgs, by = "genres")%>% 
+    left_join(release_avgs, by="release") %>%
+    mutate(pred = mean_rating + movie_eff + user_eff + genre_eff + release_eff)
+
+```
+
+```{r, echo=FALSE}
+options(digits = 4)
+movie_user_release_rmse <- RMSE(test$rating ,  release_eff$pred)
+results <- results %>% 
+    add_row(method = "movie_user_gre_rel_eff", rmse = movie_user_release_rmse)
+results %>% knitr::kable()
+rm(release_eff)
+```
+
+
+## Movie, User, genre, release and rating year effect model :
+The users mindset also has evolved over time. This can also effect the average rating of movies over the years. So we will add a rating date bias b_r to our model.
+$$Y_{u,i} = \hat{\mu} + b_i + b_u + b_g + b_d + b_r + \epsilon_{u,i}$$
+```{r, echo=FALSE, include=FALSE}
+gc()
+options(digits = 2)
+rat_year_avgs <- train %>%
+   left_join(movies_avgs, by='movieId') %>% 
+   left_join(users_avgs, by="userId") %>%
+   left_join(genres_avgs, by = "genres") %>% 
+   left_join(release_avgs, by="release") %>%
+   group_by(rating_year) %>%
+   summarize(rat_year_eff = 
+              mean(rating - mean_rating - movie_eff - user_eff - genre_eff - release_eff))
+rat_year_eff <- test %>% 
+   left_join(movies_avgs, by = 'movieId') %>%
+   left_join(users_avgs , by = 'userId') %>% 
+   left_join(genres_avgs, by = "genres") %>% 
+   left_join(release_avgs, by="release") %>%
+   left_join(rat_year_avgs, by="rating_year") %>% 
+   mutate(pred = 
+    mean_rating + movie_eff + user_eff + genre_eff + release_eff + rat_year_eff)
+
+```
+
+
+```{r, echo=FALSE}
+options(digits = 4)
+movie_user_year_rmse <- RMSE(test$rating ,  rat_year_eff$pred)
+results <- results %>% 
+           add_row(method = "movie_user_year_eff", rmse = movie_user_year_rmse)
+results %>% knitr::kable()
+rm(rat_year_eff, genres_avgs, movies_avgs, rat_year_avgs,
+           release_avgs, users_avgs)
+```
+
+
+
+## Xgboost model : Extreme Gradient Boosting
+
+```{r, echo=FALSE,  include=FALSE}
+library(xgboost)
+```
+ XGBoost stands for “Extreme Gradient Boosting,it is an extension to gradient boosted decision trees (GBM) and specially designed to improve speed and performance. 
+
+  XGBoost, Like other gradient boosting algorithms, operates on decision trees, models that construct a graph that examines the input under various "if" statements. Whether the "if" condition is satisfied influences the next "if" condition and eventual prediction. XGBoost  progressively adds more and more "if" conditions to the decision tree to build a stronger model. 
+  $$y_i = \sum_{k=1}^{K}f_k(x_i),f_k€F$$
+where K is the number of trees, and f is a function in the functional space F, and F is the set of all possible Classification and regression trees.
+  
+XGBoost also works in a similar manner as Gradient Boosting model but introduces regularisation terms to counter overfitting..   
+
+### Data processing :
+From the last model we conclude that there is an impact of the  rating average per movie, per user and per genre on the true rating, we we will add those to our data to let our model take advantage of these features.
+
+#### add averages to train set
+```{r, echo=FALSE, include=FALSE}
+gc()
+
+movie_avg <- train %>% group_by(movieId) %>%
+                       summarise(mov_avg = mean(rating))
+
+user_avg <- train %>% group_by(userId) %>%
+                      summarise(user_avg = mean(rating))
+
+genre_avg <- train %>% group_by(genres) %>% 
+                       summarise(genre_avg = mean(rating))
+
+train <- train %>% left_join(movie_avg) %>% 
+                   left_join(user_avg) %>% 
+                   left_join(genre_avg) %>% as.data.frame()
+
+rm(genre_avg, user_avg, movie_avg)
+gc()
+```
+
+```{r, echo=FALSE}
+head(train) %>% knitr::kable()
+```
+
+#### add averages to test set :
+
+```{r, echo=FALSE, include=FALSE}
+
+movie_avg <- test %>% group_by(movieId) %>%
+                      summarise(mov_avg = mean(rating))
+
+user_avg <- test %>% group_by(userId) %>%
+                     summarise(user_avg = mean(rating))
+
+genre_avg <- test %>% group_by(genres) %>% 
+                      summarise(genre_avg = mean(rating))
+
+test <- test %>% left_join(movie_avg) %>% 
+                 left_join(user_avg) %>% 
+                 left_join(genre_avg) %>% as.data.frame()
+
+rm(genre_avg, user_avg, movie_avg)
+gc()
+```
+
+```{r, echo=FALSE}
+head(test) %>% knitr::kable()
+```
+
+
+#### Define predictor and response variables in the datasets :
+
+We convert our train and test set predictors to an object data.matrix and we define the response variablse using this piece of code :
+ 
+>train_x = data.matrix(train[, -3]) \
+>train_y = train[,3] \
+>test_x = data.matrix(test[, -3]) \
+>test_y = test[, 3]\
+
+```{r, echo=FALSE, include=FALSE}
+gc()
+train_x = data.matrix(train[, -3])
+train_y = train[,3]
+rm(train)
+test_x = data.matrix(test[, -3])
+test_y = test[, 3]
+rm(test)
+gc()
+```
+
+ 
+
+
+### define final training and testing sets :
+
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+
+```{r, echo=FALSE, include=FALSE}
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+gc()
+```
+
+
+### Define watchlist :
+
+watchlist = list(train=xgb_train, test=xgb_test)
+
+```{r, echo=FALSE}
+watchlist = list(train=xgb_train, test=xgb_test)
+```
+
+
+### Fit XGBoost model and display training and testing data at each round to chose the best parameters :
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+set.seed(1, sample.kind = "Rounding")
+model = xgb.train(data = xgb_train, max.depth = 10,
+                  watchlist=watchlist, nrounds = 20)
+```
+                  
+  
+### Define final model :
+                
+```{r, echo=FALSE}
+final = xgboost(data = xgb_train, max.depth = 10, nrounds = 15)
+```
+
+### Get predictions on test set :
+
+
+```{r, echo=FALSE, include=FALSE}
+gc()
+
+y_pred <- predict(final, data.matrix(test_x))
+rmse_xgboost <- RMSE(test_y, y_pred)
+results <- results %>% add_row(method = "xgboost", rmse = rmse_xgboost)
+rm(test_x, test_y, y_pred)
+gc() 
+```
+
+```{r, echo=FALSE}
+paste(c("The rmse for Xgboost is", rmse_xgboost))
+results %>% knitr::kable()
+```
+
+
+# Final results :
+
+**apply the winning model for on validation set**
+
+  Based on the results we have got in the previous section now we know that the Xgboost model did the best, in this final section we will apply it on the validation data set and get the final RMSE. But before this we will have to do some data preprocessing on the the dataset. \
+## Validation loading and cleaning :
+
+ There is no missing values in the validation data set.
+```{r, echo=FALSE}
+validation <- fread("validation.csv")
+sapply(validation, function(i){
+  sum(is.na(i))
+})
+```
+
+
+We will extract the rating year, year of release, the genres and convert genres to integer in the validation data set. Then we will add averages column of rating per movie, user and genre.
+```{r, echo=FALSE, include=FALSE}
+gc()
+
+validation <- validation %>% mutate(
+    rating_year = as.integer(year(date(
+                   as_datetime(timestamp, origin = "1970-01-01"))))) %>% 
+                            select(-timestamp)
+
+validation <- validation %>% mutate(title = str_trim(title)) %>% 
+  extract(title, c("title_1", "release"),
+          regex = "^(.*) \\(([0-9 \\-]*)\\)$",
+          remove = F) %>% 
+  mutate(release = if_else(str_length(release) > 4,
+                           as.integer(str_split(release, "-",
+                                                simplify = T)[1]),
+                           as.integer(release))) %>% 
+  mutate(title = if_else(is.na(title_1), title,
+                         title_1)) %>% select(-title_1, -title)
+
+validation <- validation %>% separate_rows(genres, sep = "\\|")
+
+validation <- validation %>% mutate(genres = as.integer(as.factor(genres))) %>%
+                             as.data.frame()
+movie_avg <- validation %>% group_by(movieId) %>%
+                            summarise(mov_avg = mean(rating))
+
+user_avg <- validation %>% group_by(userId) %>%
+                           summarise(user_avg = mean(rating))
+
+genre_avg <-  validation %>% group_by(genres) %>% 
+                             summarise(genre_avg = mean(rating))
+
+validation <- validation %>% left_join(movie_avg) %>% 
+                             left_join(user_avg) %>% 
+                             left_join(genre_avg)
+
+rm(genre_avg, user_avg, movie_avg)
+gc()
+```
+
+
+## Validation set preparation :
+In the next step we define the matrix of predictors and our response variable.
+
+```{r, echo=FALSE}
+valid_x = data.matrix(validation[, -3])
+valid_y = validation[, 3]
+```
+
+
+## Run final model on validation set :
+We run the final Xgboost model on the validation matrix.
+
+```{r, echo=FALSE}
+
+rat_pred <- predict(final, data.matrix(valid_x))
+rmse_xgboost <- RMSE(valid_y, rat_pred)
+paste(c("The MRSE of Xgboost applied on validation set is", rmse_xgboost))
+```
+
+
+  The overall objective to training a machine learning algorithm of course resides in being able to generate predictions.
+On the validation dataset, we managed to reach an RMSE of 0.8337.
+
+
+# Conclusion :
+
+
+   The project goal was to build a model that predict movie ratings. Our approach undertaken here relied on an initial exploratory analysis with data visualizations, then we start building models based on the assumptions made in the last part, the models take into account all the features. Finnally, we chose the model that performs the least RMSE and applied it on the validation set which produced an RMSE of 0.83 that is better than out target of 0.86. 
+
+
+   While these results are promising, future work could improve both predictive performance and speed of the algorithm in the following ways :\
+  - Use matrix factorization.\
+  - Use models that consume less time and memory.\
+  - Use the sampling techniques as it permit to work on large data set and guarantee generalizability.
