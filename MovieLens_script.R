@@ -93,7 +93,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed,
 gc()
 
 # II . Data Exploration :
-
+memory.limit(size = 12288) # for windows users
 ## 1. ## Initial exploration :
 ### The structure of the dataset
 str(edx)
@@ -183,7 +183,7 @@ edx %>% ggplot(aes(rating)) + geom_bar() + theme_bw() +
 
 ### Distribution of the average rating per user
 edx %>% group_by(userId) %>% summarise(avg_rating = mean(rating)) %>%
-  ggplot(aes(avg_rating)) + 
+  ggplot(aes(avg_rating)) + theme_bw() +
   geom_histogram(color = "black")
 
 ### Summary of average rating per user :
@@ -192,7 +192,7 @@ edx %>% group_by(userId) %>% summarise(avg_rating = mean(rating)) %>%
 
 ### Distribution of the average rating per movie :
 edx %>% group_by(movieId) %>% summarise(avg_rating = mean(rating)) %>%
-  ggplot(aes(avg_rating)) + 
+  ggplot(aes(avg_rating)) + theme_bw() +
   geom_histogram(color = "black")
 ## Summary of average rating per movie :
 edx %>% group_by(movieId) %>% summarise(avg_rating = mean(rating)) %>%
@@ -287,11 +287,13 @@ gc()
 ### This is how our data looks now
 head(edx) 
 
-### Number of genres in our data :
+### Number of rating per genres in our data :
 edx %>% dplyr::count(genres) %>% arrange(desc(n))
 
-### Number of rating per each genre is :
-edx %>% dplyr::count(genres) %>% arrange(desc(n))
+## Remove "no listed genre" : it s a small number that can make some noise and
+edx <- edx %>% filter(genres != "(no genres listed)")
+
+
 
 ### Distribution of rating per genres :
 edx %>% mutate(genres = factor(genres,
@@ -306,7 +308,7 @@ edx %>% group_by(genres) %>%
   summarise(avg_rating = mean(rating), med = median(rating),
             min = min(rating), max = max(rating))
 
-# III. Data analysis
+# III. Data preprocessing
 library(caret)
 options( digits = 4)
 
@@ -314,8 +316,9 @@ options( digits = 4)
 RMSE <- function(actual , prediction){
   sqrt(mean((actual - prediction)^2))
 }
-## Convert genres to integer to release memory and make calculations fast : 
-edx <- edx %>% mutate(genres = as.integer(as.factor(genres)))
+## Encode genre variable 
+edx <- edx %>% mutate(value = rep(1, nrow(edx))) %>%
+  spread(key = genres, value = value, fill = 0) %>% as.data.frame()
 
 ## Create train and test set
 set.seed(1, sample.kind = "Rounding")
@@ -332,6 +335,8 @@ train <- rbind(train, removed)
 rm(temp, test_index, removed, edx)
 gc()
 
+
+# Models building
 ## 1. first model : just the mean
 
 ### Predict rating as the average :
@@ -382,52 +387,28 @@ results <- results %>% add_row(method = "movie_user_eff",
 results %>% knitr::kable()
 rm(movie_user_eff)
 gc()
-## 4. Add genres effect :
 
-### Model :
-genres_avgs <- train %>% select(-c(rating_year, release)) %>%
-  left_join(movies_avgs, by='movieId') %>%
-  left_join(users_avgs, by = "userId") %>%
-  group_by(genres) %>%
-  summarize(genre_eff = mean(rating - mean_rating - movie_eff - user_eff))
 
-### Predictions :
-movie_user_g_eff <- test %>% 
-  left_join(movies_avgs, by = 'movieId') %>%
-  left_join(users_avgs , by = 'userId') %>%
-  left_join(genres_avgs, by ="genres") %>%
-  mutate(pred = mean_rating + movie_eff + user_eff + genre_eff) 
-
-### RMSE :
-movie_user_g_rmse <- RMSE(test$rating ,  movie_user_g_eff$pred)
-results <- results %>% add_row(method = "movie_user_g_eff", 
-                               rmse = movie_user_g_rmse)
-results %>% knitr::kable()
-rm(movie_user_g_eff)
-gc()
-
-## 5. Add release_year effect :
+## 4. Add release_year effect :
 
 ### Modeling :
 release_avgs <- train %>%
   left_join(movies_avgs, by='movieId') %>% 
   left_join(users_avgs, by="userId") %>%
-  left_join(genres_avgs, by = "genres") %>% 
   group_by(release) %>%
   summarize(release_eff = 
-         mean(rating - mean_rating - movie_eff - user_eff - genre_eff))
+         mean(rating - mean_rating - movie_eff - user_eff))
 
 ### Getting predictions :
 release_eff <- test %>% 
   left_join(movies_avgs, by = 'movieId') %>%
   left_join(users_avgs , by = 'userId') %>%
-  left_join(genres_avgs, by = "genres")%>% 
   left_join(release_avgs, by="release") %>%
-  mutate(pred = mean_rating + movie_eff + user_eff + genre_eff + release_eff)
+  mutate(pred = mean_rating + movie_eff + user_eff + release_eff)
 
 ### Getting RMSE :
 movie_user_release_rmse <- RMSE(test$rating ,  release_eff$pred)
-results <- results %>% add_row(method = "movie_user_gre_rel_eff", 
+results <- results %>% add_row(method = "movie_user_rel_eff", 
                                rmse = movie_user_release_rmse)
 results %>% knitr::kable()
 
@@ -441,20 +422,18 @@ gc()
 rat_year_avgs <- train %>%
   left_join(movies_avgs, by='movieId') %>% 
   left_join(users_avgs, by="userId") %>%
-    left_join(genres_avgs, by = "genres") %>% 
   left_join(release_avgs, by="release")  %>% group_by(rating_year) %>%
   summarize(rat_year_eff = 
-  mean(rating - mean_rating - movie_eff - user_eff - genre_eff - release_eff))
+  mean(rating - mean_rating - movie_eff - user_eff - release_eff))
 
 ### Applying it to the test set : Predictions
 rat_year_eff <- test %>% 
   left_join(movies_avgs, by = 'movieId') %>%
   left_join(users_avgs , by = 'userId') %>% 
-  left_join(genres_avgs, by = "genres") %>% 
   left_join(release_avgs, by="release") %>%
   left_join(rat_year_avgs, by="rating_year") %>% 
   mutate(pred = 
-  mean_rating + movie_eff + user_eff + genre_eff + release_eff + rat_year_eff)
+  mean_rating + movie_eff + user_eff + release_eff + rat_year_eff)
 
 
 ### Getting RMSE :
@@ -462,17 +441,15 @@ movie_user_year_rmse <- RMSE(test$rating ,  rat_year_eff$pred)
 results <- results %>% add_row(method = "movie_user_year_eff", 
                                rmse = movie_user_year_rmse)
 results %>% knitr::kable()
-rm(rat_year_eff, genres_avgs, movies_avgs, rat_year_avgs,
+rm(rat_year_eff, movies_avgs, rat_year_avgs,
    release_avgs, users_avgs) 
 gc()
 
 
 # 7. The Gradiant boosting method : Xgboost 
 
-#### We will make "digits = 2" while preparing the train data in order to 
-#### not exhaust the memory but will set "digits =4" for RMSE calcilation
-
-## Data processing : add average rating per important predictors to our data
+## Data processing : add average rating per userID movieID and remove usersID
+# and movie ID
 
 ### train_set
 movie_avg <- train %>% group_by(movieId) %>%
@@ -481,13 +458,12 @@ movie_avg <- train %>% group_by(movieId) %>%
 user_avg <- train %>% group_by(userId) %>%
   summarise(user_avg = mean(rating))
 
-genre_avg <- train %>% group_by(genres) %>% 
-  summarise(genre_avg = mean(rating))
 
-train <- train %>% left_join(movie_avg) %>% left_join(user_avg) %>% 
-  left_join(genre_avg) %>% as.data.frame()
+train <- train %>% left_join(movie_avg) %>% 
+                   left_join(user_avg) %>% 
+                  as.data.frame()
 
-rm(genre_avg, user_avg, movie_avg)
+rm(user_avg, movie_avg)
 gc()
 head(train)
 
@@ -498,22 +474,21 @@ movie_avg <- test %>% group_by(movieId) %>%
 user_avg <- test %>% group_by(userId) %>%
   summarise(user_avg = mean(rating))
 
-genre_avg <- test %>% group_by(genres) %>% 
-  summarise(genre_avg = mean(rating))
 
-test <- test %>% left_join(movie_avg) %>% left_join(user_avg) %>% 
-  left_join(genre_avg) %>% as.data.frame()
+test <- test %>% left_join(movie_avg) %>% 
+                left_join(user_avg) %>% 
+                as.data.frame()
 
-rm(genre_avg, user_avg, movie_avg)
+rm(user_avg, movie_avg)
 gc()
 head(test)
 
 #define predictor and response variables in training set
-train_x = data.matrix(train[, -3])
+train_x = data.matrix(train[, -c(1, 2, 3)])
 train_y = train[,3]
 
 #define predictor and response variables in testing set
-test_x = data.matrix(test[, -3])
+test_x = data.matrix(test[, -c(1, 2, 3)])
 test_y = test[, 3] 
 
 # free some memory
@@ -533,8 +508,8 @@ set.seed(1, sample.kind = "Rounding")
 model = xgb.train(data = xgb_train, max.depth = 10,
                   watchlist=watchlist, nrounds = 20)
 #define final model
-final = xgboost(data = xgb_train, max.depth = 10, nrounds = 15, 
-                verbose = TRUE)
+final = xgboost(data = xgb_train, max.depth = 10, nrounds = 16, 
+                verbose = FALSE)
 # get predictions
 y_pred <- predict(final, data.matrix(test_x))
 
@@ -550,7 +525,7 @@ gc()
 ### apply the winning model for on validation set
 
 #### load validation set :
-validation <- fread("raw_data/validation.csv")
+validation <- fread("validation.csv")
 
 #### validation preprocessing
 
@@ -575,12 +550,11 @@ validation <- validation %>% mutate(title = str_trim(title)) %>%
 #### genres
 validation <- validation %>% separate_rows(genres, sep = "\\|")
 
-validation <- validation %>% 
-  mutate(genres = as.integer(as.factor(genres))) %>%
-  as.data.frame()
+validation <- validation %>% mutate(value = rep(1, nrow(validation))) %>%
+  spread(key = genres, value = value, fill = 0) %>% as.data.frame()
 
 ### making validation ready for our model
-options(digits = 2)
+
 
 movie_avg <- validation %>% group_by(movieId) %>%
   summarise(mov_avg = mean(rating))
@@ -588,21 +562,18 @@ movie_avg <- validation %>% group_by(movieId) %>%
 user_avg <- validation %>% group_by(userId) %>%
   summarise(user_avg = mean(rating))
 
-genre_avg <-  validation %>% group_by(genres) %>% 
-  summarise(genre_avg = mean(rating))
 
 validation <- validation %>% left_join(movie_avg) %>%
-  left_join(user_avg) %>% 
-  left_join(genre_avg)
+  left_join(user_avg)
 
-rm(genre_avg, user_avg, movie_avg)
+rm(user_avg, movie_avg)
 gc()
 
-valid_x = data.matrix(validation[, -3])
+valid_x = data.matrix(validation[, -c(1, 2, 3)])
 valid_y = validation[, 3]
 
 ### validation final results
-options(digits = 4)
+
 rat_pred <- predict(final, data.matrix(valid_x))
 
 ### get predictions
