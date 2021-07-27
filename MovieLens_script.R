@@ -1,5 +1,5 @@
-######### Harvardx's Data Sicience Professional Certificate Capstone ########
-######################## Movielen Project###################################
+######### Harvardx's Data Science Professional Certificate Capstone ########
+######################## MovieLens Project###################################
 ########################### R Script########################################
 
 
