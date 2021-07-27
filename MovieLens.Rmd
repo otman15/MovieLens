@@ -1,8 +1,8 @@
 ---
 title: "MovieLens Recommendation System Project"
-subtitle : "Harvardx's Data Science Professional Certificate" 
+subtitle : "HarvardX's Data Science Professional Certificate" 
 author: "Otman Cherrati"
-date: "7/16/2021"
+date: "July 16, 2021"
 output: 
   pdf_document: 
     toc: yes
@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r setup, include=FALSE, echo=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', cache=FALSE,
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'left', cache=FALSE,
                       cache.lazy = FALSE)
 ```
 
@@ -30,7 +30,7 @@ MovieLens recommends movies for its users to watch, based on their film preferen
   We will start by taking a look on the databset and then exploring the different    variables to see if there is any trends that can help us make some assumptions.
   After cleaning the data we will start building and testing our models based on what we have learned in the exploratory analysis. 
   The evaluation of the models is based on the RMSE - Root Mean Squared Error that should be at least lower than 0.87750.
-  $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}e_t^2}$$
+  $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_{i} - \hat{y_{i}})^2}$$
   Finally we will apply our final best model to the validation data set and discuss the results.
 
 \vspace{0.5cm}
@@ -70,7 +70,10 @@ library(lubridate)
 library(xgboost)
 library(knitr)
 memory.limit(size = 12288) # for windows users(in the case the limit is limited in 8Gb)
+
 options(digits = 5)
+
+#NB : You may have to close other windows and run "rm(list = ls)" to make the code run smoothly, the whole code may take a while.
 ```
 
 \vspace{1cm}
@@ -145,7 +148,7 @@ validation <- temp %>%
 removed <- anti_join(temp, validation)
 edx <- rbind(edx, removed)
 
-# Save raw data and remove validation for now :
+# Save validation data and remove it from environment  for now :
 
 fwrite(validation, "validation.csv")
 
@@ -331,7 +334,7 @@ edx %>% group_by(userId) %>%
         theme_bw() +
         ggtitle("Average rating per user")
 ```
-The distribution  is almost symmetric and users give on average rating of 3.6.
+The distribution  is almost symmetric with outliers to the left, users  give on average rating of 3.6 in a range from 0.5 to 5. The variation of average rating from user to user make it very important to include user effect in any farther analysis.
 
 \vspace{1cm}
 
@@ -359,7 +362,7 @@ edx %>% group_by(movieId) %>%
         ggplot(aes(avg_rating)) + 
         geom_histogram(color = "black") + theme_bw()
 ```
-The distribution skewed to the left, this means that most movies get rating more than the average of average rating per movie.
+The distribution skewed to the left, this means that most movies get rating more than the average of average rating per movie. This pattern will certainly have an effect on rating predictions.
 \vspace{1cm}
 
  Summary of average rating per movie
@@ -432,7 +435,7 @@ edx %>% ggplot(aes(rating_year)) +
         geom_histogram(binwidth = 1, color = "black") + theme_bw() +
         ggtitle("Distribution of number of ratings  per year of rating")
 ```
-We can see that the number of ratings per year has increased since 1995, has reached a maximum of 1144349 in 2002 and since then it has been around 60000.
+We can see that the number of ratings per year has increased since 1995, has reached a maximum of 1144349 in 2002 and since then it has been around 60000. This means that the way the users rate movies has evolved over the time. The time of rating could also have an effect on the rating a movie will get.
 
 \vspace{1cm}
 
@@ -482,7 +485,7 @@ edx %>% group_by(release) %>%
         ggtitle("Distribution of ratings per year of release") + 
         ylab("number of ratings")
 ```
-The number of ratings has increased since the start of the movie making, it has reached its pic around 1995, but it has dropped since then.
+The number of ratings has increased since the start of the movie making, it has reached its pic around 1995, but it has dropped since then. The number of rating of a movie depends also on the year it was released, this may affect the chance of a movie of having good ratings.
 
 
 **The 10 years of release with the most rated movies:**
@@ -503,7 +506,7 @@ edx %>% filter(!duplicated(movieId)) %>%
         ggtitle("distribution of released movies per year") +
         ylab("number of movies released")
 ```
-The number of movies released has increased since 1915 and it has reached the max in on 2002.
+The number of movies released has increased since 1915 and it has reached the max in on 2002. This is obvious since the movie making has evolved over time.
 \vspace{1cm}
 
  **Number of released movies per year**
@@ -796,7 +799,6 @@ rat_year_eff <- test %>%
 
 ```
 
-\vspace{1cm}
 
 ```{r, echo=FALSE}
 movie_user_year_rmse <- RMSE(test$rating ,  rat_year_eff$pred)
@@ -815,9 +817,7 @@ We can see that using the average rating per year don't affect much the rmse.
 
 ## Xgboost model : Extreme Gradient Boosting
 
-```{r, echo=FALSE,  include=FALSE}
-library(xgboost)
-```
+
  XGBoost stands for “Extreme Gradient Boosting,it is an extension to gradient boosted decision trees (GBM) and specially designed to improve speed and performance. 
 
   XGBoost, Like other gradient boosting algorithms, operates on decision trees, models that construct a graph that examines the input under various "if" statements. Whether the "if" condition is satisfied influences the next "if" condition and eventual prediction. XGBoost  progressively adds more and more "if" conditions to the decision tree to build a stronger model. 
@@ -967,10 +967,12 @@ Before this we will have to do some data pre_processing on the the validation da
 
  There is no missing values in the validation data set.
 ```{r, echo=FALSE}
-validation <- fread("validation.csv")
+validation <- fread("validation.csv") 
+
 sapply(validation, function(i){
-  sum(is.na(i)) %>% kable(caption = c("Number of NAs"))
-})
+    sum(is.na(i))
+}) %>% 
+  kable(col.names = c("Number of NAs"))
 ```
 
 
@@ -1019,6 +1021,7 @@ gc()
 head(validation[1:6, c(1, 2, 3, 8, 15, 24, 25, 26)]) %>% knitr::kable()
 ```
 
+\vspace{1cm}
 ## Validation set preparation :
 In this step we define the matrix of predictors and the target variable.
 
@@ -1027,7 +1030,7 @@ valid_x = data.matrix(validation[, -c(1, 2, 3)])
 valid_y = validation[, 3]
 ```
 
-
+\vspace{1cm}
 ## Run final model on validation set :
 We run the final Xgboost model on the validation matrix.
 

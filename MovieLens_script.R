@@ -7,12 +7,14 @@
 # Install all needed libraries if it is not present
 if(!require(tidyverse)) install.packages("tidyverse") 
 if(!require(tidyr)) install.packages("tidyr")
-if(!require(lubridate)) install.packages("lubridate")
 if(!require(stringr)) install.packages("stringr")
 if(!require(ggplot2)) install.packages("ggplot2")
-if(!require(xgboost)) install.packages("Xgboost")
 if(!require(data.table)) install.packages("data.table")
+if(!require(lubridate)) install.packages("lubridate")
+if(!require(xgboost)) install.packages("Xgboost")
+if(!require(knitr)) install.packages("knitr")
 
+# load libraries
 # load libraries
 library(tidyverse)
 library(stringr)
@@ -21,8 +23,20 @@ library(tidyr)
 library(data.table)
 library(lubridate)
 library(xgboost)
+library(knitr)
 
-# I. Download Movielens data : copy the code provided by edx
+options(digits = 5)
+
+memory.limit(size = 12288) ##
+# for windows users(in the case the limit is limited in 8Gb)
+
+
+#NB : You may have to close other windows and run "rm(list = ls)" 
+#to make the code run smoothly, the whole code may take a while.
+
+
+
+# I. Download Movielens data : copy the code provided by edX
 
 ##########################################################
 # Create edx set, validation set (final hold-out test set)
@@ -93,7 +107,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed,
 gc()
 
 # II . Data Exploration :
-memory.limit(size = 12288) # for windows users
+
 ## 1. ## Initial exploration :
 ### The structure of the dataset
 str(edx)
@@ -118,7 +132,7 @@ edx %>%
 ## 2. Variable Exploration :
 
 
-## a. movies distribution:
+## a. movies:
 
 ### There are 10677 different movies in the edx set,
 ###some of them are rated more than others :
@@ -194,7 +208,7 @@ edx %>% group_by(userId) %>% summarise(avg_rating = mean(rating)) %>%
 edx %>% group_by(movieId) %>% summarise(avg_rating = mean(rating)) %>%
   ggplot(aes(avg_rating)) + theme_bw() +
   geom_histogram(color = "black")
-## Summary of average rating per movie :
+### Summary of average rating per movie :
 edx %>% group_by(movieId) %>% summarise(avg_rating = mean(rating)) %>%
   pull(avg_rating) %>% summary()
 
@@ -310,7 +324,7 @@ edx %>% group_by(genres) %>%
 
 # III. Data preprocessing
 library(caret)
-options( digits = 4)
+
 
 ## making the evaluation function :
 RMSE <- function(actual , prediction){
@@ -579,7 +593,7 @@ rat_pred <- predict(final, data.matrix(valid_x))
 ### get predictions
 rmse_xgboost <- RMSE(valid_y, rat_pred)
 
-paste(c("The MRSE of Xgboost applied on validation set is", rmse_xgboost))
+cat(c("The MRSE of Xgboost applied on validation set is", rmse_xgboost))
 
 
 
