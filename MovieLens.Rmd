@@ -73,7 +73,7 @@ memory.limit(size = 12288) # for windows users(in the case the limit is limited 
 
 options(digits = 5)
 
-#NB : You may have to close other windows and run "rm(list = ls)" to make the code run smoothly, the whole code may take a while.
+#NB : You may have to close other windows and run "rm(list = ls())" to make the code run smoothly, the whole code may take a while.
 ```
 
 \vspace{1cm}

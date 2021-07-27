@@ -31,7 +31,7 @@ memory.limit(size = 12288) ##
 # for windows users(in the case the limit is limited in 8Gb)
 
 
-#NB : You may have to close other windows and run "rm(list = ls)" 
+#NB : You may have to close other windows and run "rm(list = ls())" 
 #to make the code run smoothly, the whole code may take a while.
 
 
